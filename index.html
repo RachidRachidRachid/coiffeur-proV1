@@ -117,9 +117,9 @@ header{height:70px;border-bottom:1px solid var(--border);display:flex;align-item
 .calendar-day.empty { background: transparent; border-color: transparent; cursor: default; }
 .time-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:10px;}
 .time-chip{font-family:var(--font-mono);background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;text-align:center;cursor:pointer;font-size:.85rem;transition:.15s;}
-.time-chip:hover:not(.taken){border-color:var(--gold);}
+.time-chip:hover{border-color:var(--gold);}
 .time-chip.selected{background:var(--gold);color:#000;border-color:var(--gold);font-weight:700;}
-.time-chip.taken{opacity:.3;text-decoration:line-through;cursor:not-allowed;background:rgba(255,255,255,0.02);color:var(--text-dim);border-color:transparent;}
+.time-chip.taken{opacity:.3;text-decoration:line-through;cursor:not-allowed;}
 
 /* ===== CART / TICKET BAR ===== */
 .ticket-bar{position:fixed;bottom:0;left:0;right:0;background:var(--bg-elev);border-top:1px dashed var(--border);z-index:900;transform:translateY(100%);transition:transform .3s ease;box-shadow:0 -10px 30px rgba(0,0,0,.4);}
@@ -428,8 +428,7 @@ td{padding:14px 16px;border-top:1px solid var(--border);vertical-align:middle;}
    2. Copiez l'URL générée
    3. Remplacez l'URL ci-dessous par VOTRE URL (en gardant les guillemets)
    ========================================================== */
-const API_URL = 'https://script.google.com/macros/s/AKfycbzgKe1JIBdDCVh7be0kxLY-jYRo8J9wJ2KbAlEDStWgF8ETINMcc7-c4SGeovSfuMq2/exec
-'; // REMPLACEZ CETTE LIGNE
+const API_URL = 'https://script.google.com/macros/s/AKfycbzgKe1JIBdDCVh7be0kxLY-jYRo8J9wJ2KbAlEDStWgF8ETINMcc7-c4SGeovSfuMq2/exec'; // REMPLACEZ CETTE LIGNE
 const POLL_MS = 5000;
 
 const DEFAULT_SETTINGS = { nomSalon: 'Barber Pro DZ', adresse: '', telephone: '', devise: 'DA', ouverture: '09:00', fermeture: '20:00', dureeSlot: 30, joursFermeture: [], aboutTitle: 'À propos de notre salon', aboutText: 'Bienvenue chez Barber Pro DZ, votre salon de coiffure de référence.', footerText: '© 2026 Barber Pro DZ. Tous droits réservés.' };
@@ -522,768 +521,742 @@ function normalizeData(raw){
     const statutFr = String(getVal(r,'statut', 'status')||'En attente').trim().toLowerCase();
     
     let dateVal = getVal(r,'date');
-    let heureVal = getVal(r,'heure');
-    
-    if (dateVal && typeof dateVal === 'string' && dateVal.includes('T')) {
-      const dt = new Date(dateVal);
-      if (!isNaN(dt.getTime())) {
-        dateVal = dt.toLocaleDateString('fr-FR');
-        if (!heureVal) {
-          heureVal = dt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-        }
-      }
+    if (dateVal && String(dateVal).includes('T')) {
+       dateVal = String(dateVal).split('T')[0];
+    } else if (dateVal && String(dateVal).includes('/')) {
+       const [d,m,y] = String(dateVal).split('/');
+       if (y && y.length === 4) dateVal = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
     }
-    
+
+    let heureVal = getVal(r,'heure');
+    if (heureVal && String(heureVal).includes('T')) {
+       const timeMatch = String(heureVal).match(/T(\d{2}:\d{2})/);
+       if (timeMatch) heureVal = timeMatch[1];
+    } else if (heureVal) {
+       const hMatch = String(heureVal).match(/(\d{1,2}):(\d{2})/);
+       if (hMatch) heureVal = hMatch[1].padStart(2,'0') + ':' + hMatch[2];
+    }
+
     return [String(getVal(r,'id')||''), {
-      clientNom: getVal(r,'clientNom', 'nom')||'',
-      clientTel: getVal(r,'clientTel', 'tel', 'telephone')||'',
-      serviceIds: String(getVal(r,'serviceIds', 'services')||'').split(',').map(s=>s.trim()).filter(Boolean),
-      coiffeurId: String(getVal(r,'coiffeurId', 'coiffeur')||''),
-      date: String(dateVal||''),
-      heure: formatTimeSetting(heureVal, ''),
+      clientNom: getVal(r,'nom', 'client')||'', clientTel: getVal(r,'telephone', 'tel')||'',
+      prestations: String(getVal(r,'service', 'services', 'prestation')||'').split(' + ').filter(Boolean).map(nom => ({ nom, tarif:0, duree:0 })),
+      coiffeurId: null, coiffeurNom: getVal(r,'coiffeur', 'coiffeurs') || '',
+      date: dateVal, heure: heureVal, total: Number(getVal(r,'prix', 'total'))||0,
       statut: STATUT_FR_TO_CODE[statutFr] || 'attente',
-      timestamp: parseFrDate(getVal(r,'timestamp') || '')
+      creeLe: parseFrDate(getVal(r,'date creation', 'date de creation', 'creation'))
     }];
   });
-
-  let rawSet = {};
-  if (Array.isArray(raw.parametres)) {
-    raw.parametres.forEach(item => {
-      if (item && typeof item === 'object') {
-        const key = Object.keys(item)[0];
-        const val = Object.values(item)[0];
-        if (key) rawSet[key] = val;
-      }
-    });
-  } else if (raw.parametres && typeof raw.parametres === 'object') {
-    rawSet = raw.parametres;
-  }
-
-  const parseJours = (val) => {
-    if (!val) return [];
-    if (Array.isArray(val)) return val.map(Number).filter(n => !isNaN(n));
-    return String(val).split(',').map(n => parseInt(n.trim(), 10)).filter(n => !isNaN(n));
-  };
-
+  const p = raw.parametres || {};
   const settings = {
-    nomSalon: getVal(rawSet, 'nomSalon', 'nom') || DEFAULT_SETTINGS.nomSalon,
-    adresse: getVal(rawSet, 'adresse') || DEFAULT_SETTINGS.adresse,
-    telephone: getVal(rawSet, 'telephone', 'tel') || DEFAULT_SETTINGS.telephone,
-    devise: getVal(rawSet, 'devise') || DEFAULT_SETTINGS.devise,
-    ouverture: formatTimeSetting(getVal(rawSet, 'ouverture'), DEFAULT_SETTINGS.ouverture),
-    fermeture: formatTimeSetting(getVal(rawSet, 'fermeture'), DEFAULT_SETTINGS.fermeture),
-    dureeSlot: Number(getVal(rawSet, 'dureeSlot', 'duree')) || DEFAULT_SETTINGS.dureeSlot,
-    joursFermeture: parseJours(getVal(rawSet, 'joursFermeture', 'jours')),
-    aboutTitle: getVal(rawSet, 'aboutTitle') || DEFAULT_SETTINGS.aboutTitle,
-    aboutText: getVal(rawSet, 'aboutText') || DEFAULT_SETTINGS.aboutText,
-    footerText: getVal(rawSet, 'footerText', 'footer') || DEFAULT_SETTINGS.footerText,
+    nomSalon: getVal(p, 'nomsalon') || p.nomSalon || DEFAULT_SETTINGS.nomSalon,
+    devise: getVal(p, 'devise') || p.devise || DEFAULT_SETTINGS.devise,
+    adresse: getVal(p, 'adresse') || p.adresse || '',
+    telephone: getVal(p, 'telephone', 'tel') || p.telephone || '',
+    ouverture: formatTimeSetting(getVal(p, 'ouverture') || p.ouverture, DEFAULT_SETTINGS.ouverture),
+    fermeture: formatTimeSetting(getVal(p, 'fermeture') || p.fermeture, DEFAULT_SETTINGS.fermeture),
+    dureeSlot: Number(getVal(p, 'dureeslot') || p.dureeSlot) || DEFAULT_SETTINGS.dureeSlot,
+    joursFermeture: String(getVal(p, 'joursfermeture') || p.joursFermeture || '').split(',').filter(x=>x!=='').map(Number),
+    aboutTitle: getVal(p, 'abouttitle') || p.aboutTitle || DEFAULT_SETTINGS.aboutTitle,
+    aboutText: getVal(p, 'abouttext') || p.aboutText || DEFAULT_SETTINGS.aboutText,
+    footerText: getVal(p, 'footertext') || p.footerText || DEFAULT_SETTINGS.footerText
   };
-
-  return {
-    services: Object.fromEntries(services),
-    coiffeurs: Object.fromEntries(coiffeurs),
-    reservations: Object.fromEntries(reservations),
-    galerie: Object.fromEntries(galerie),
-    settings
-  };
+  return { services, coiffeurs, galerie, reservations, settings };
 }
 
-// ---------- SYNCHRONISATION DU CLOUD ----------
-async function syncApp(){
+async function syncAndRender(){
   try {
     const raw = await apiGet();
     appData = normalizeData(raw);
-    
-    document.getElementById('status-cloud').innerHTML = '<span class="dot-pulse"></span> SYNC ACTIVE';
-    
-    updateDynamicDOM();
-    
-    if (firstSync) {
-      firstSync = false;
-      document.getElementById('loader').classList.add('masque');
-      initApp();
-    }
-  } catch(e) {
-    console.error("Erreur de synchronisation :", e);
-    document.getElementById('status-cloud').innerHTML = '<span class="dot-pulse" style="background:var(--danger)"></span> ERREUR SYNC';
-    if (firstSync) {
-      firstSync = false;
-      document.getElementById('loader').classList.add('masque');
-      initApp();
-    }
+    document.getElementById('status-cloud').innerHTML = '<span style="color:var(--success);">● SYNC ACTIVE</span>';
+  } catch (err) {
+    console.error('Erreur de synchronisation Sheets:', err);
+    document.getElementById('status-cloud').innerHTML = '<span style="color:var(--danger);">● SYNC HORS LIGNE</span>';
+  } finally {
+    applyBranding();
+    renderClientServices();
+    renderClientCoiffeurs();
+    renderClientGalerie();
+    renderDashboard();
+    renderReservationsTable();
+    renderServicesAdmin();
+    renderCoiffeursAdmin();
+    renderGalerieAdmin();
+    if (firstSync) { fillSettingsForm(); firstSync = false; }
+    document.getElementById('loader').classList.add('masque');
   }
 }
 
-function updateDynamicDOM(){
-  document.getElementById('brand-name').textContent = appData.settings.nomSalon;
-  document.getElementById('admin-salon-name').textContent = appData.settings.nomSalon;
+syncAndRender();
+setInterval(syncAndRender, POLL_MS);
+
+function money(n){ return `${n} ${appData.settings.devise || 'DA'}`; }
+
+function applyBranding(){
+  document.getElementById('brand-name').textContent = appData.settings.nomSalon.toUpperCase();
+  document.getElementById('hero-title').textContent = `Réservez votre style chez ${appData.settings.nomSalon}`;
+  document.getElementById('admin-salon-name').textContent = `${appData.settings.nomSalon} · ${appData.settings.ouverture}–${appData.settings.fermeture}`;
   document.getElementById('about-title').textContent = appData.settings.aboutTitle;
   document.getElementById('about-text').textContent = appData.settings.aboutText;
   document.getElementById('site-footer').textContent = appData.settings.footerText;
-  
-  if (currentMode === 'admin') {
-    renderAdmin();
-  }
 }
 
-// ---------- NAVIGATION & TRANSITIONS ----------
-let currentMode = 'client';
-function switchMode(mode) {
-  currentMode = mode;
-  document.getElementById('tab-client').classList.toggle('active', mode === 'client');
-  document.getElementById('tab-admin').classList.toggle('active', mode === 'admin');
-  
-  document.getElementById('client-view').classList.toggle('masque', mode !== 'client');
-  document.getElementById('admin-view').classList.toggle('masque', mode !== 'admin');
-  
+// ================= NAVIGATION HAUT NIVEAU =================
+window.switchMode = (mode) => {
+  const clientView = document.getElementById('client-view');
+  const adminView = document.getElementById('admin-view');
+  const ticketBar = document.getElementById('ticket-bar');
+  const tabClient = document.getElementById('tab-client');
+  const tabAdmin = document.getElementById('tab-admin');
+
   if (mode === 'admin') {
-    document.getElementById('ticket-bar').classList.remove('show');
-    renderAdmin();
+    if (adminView.classList.contains('masque')) {
+      openAdminLogin(() => {
+        clientView.classList.add('masque');
+        adminView.classList.remove('masque');
+        ticketBar.classList.remove('show');
+        tabClient.classList.remove('active');
+        tabAdmin.classList.add('active');
+      });
+    }
   } else {
-    updateTicketBar();
+    adminView.classList.add('masque');
+    clientView.classList.remove('masque');
+    tabAdmin.classList.remove('active');
+    tabClient.classList.add('active');
+    renderBookingStep();
   }
-}
+};
 
-let adminTab = 'dashboard';
-function switchAdminTab(tab) {
-  adminTab = tab;
-  document.querySelectorAll('.admin-tab').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
-  document.querySelectorAll('.admin-panel').forEach(el => el.classList.add('masque'));
+window.switchAdminTab = (tab) => {
+  document.querySelectorAll('.admin-panel').forEach(p => p.classList.add('masque'));
+  document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
   document.getElementById(`panel-${tab}`).classList.remove('masque');
-  renderAdmin();
+  document.querySelector(`.admin-tab[data-tab="${tab}"]`).classList.add('active');
+};
+
+// ================= MODAL GENERIQUE =================
+function openModal(title, bodyHtml, footHtml){
+  const root = document.getElementById('modal-root');
+  root.innerHTML = `<div class="modal-box">
+    <div class="modal-title">${title}<span class="btn-ghost" style="cursor:pointer;" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></span></div>
+    <div>${bodyHtml}</div>
+    <div class="modal-foot">${footHtml}</div>
+  </div>`;
+  root.classList.remove('masque');
+}
+window.closeModal = () => document.getElementById('modal-root').classList.add('masque');
+
+function openAdminLogin(onSuccess){
+  openModal('Accès Admin', `
+    <div class="form-group">
+      <label class="form-label">Code d'accès</label>
+      <input type="password" class="form-input" id="admin-pass" placeholder="••••" onkeydown="if(event.key==='Enter')window.__adminSubmit()">
+    </div>`,
+    `<button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+     <button class="btn btn-primary" onclick="window.__adminSubmit()">Entrer</button>`);
+  window.__adminSubmit = () => {
+    const val = document.getElementById('admin-pass').value;
+    if (val === '1234') { closeModal(); onSuccess(); }
+    else { document.getElementById('admin-pass').style.borderColor = 'var(--danger)'; document.getElementById('admin-pass').value=''; }
+  };
+  setTimeout(() => document.getElementById('admin-pass')?.focus(), 50);
 }
 
-// ---------- RESERVATION CLIENT ----------
-let clientCalendarDate = new Date();
-
-function initApp(){
-  renderClientServices();
-  renderClientCoiffeurs();
-  renderClientGallery();
-  buildStepper();
-  updateStepVisibility();
-}
-
-function renderClientGallery(){
-  const grid = document.getElementById('client-gallery');
-  const sect = document.getElementById('client-gallery-section');
-  grid.innerHTML = '';
-  const list = Object.entries(appData.galerie);
-  if (list.length === 0) {
-    sect.classList.add('masque');
-    return;
-  }
-  sect.classList.remove('masque');
-  list.forEach(([id, item]) => {
-    grid.innerHTML += `<div class="gallery-item"><img src="${item.url}" alt="Galerie image"></div>`;
-  });
-}
-
-function buildStepper(){
-  const wrapper = document.getElementById('stepper');
-  wrapper.innerHTML = '';
-  const labels = ["Prestations", "Coiffeur", "Date & Heure", "Coordonnées", "Confirmation"];
-  labels.forEach((lbl, i) => {
-    const stepNum = i+1;
-    let cls = 'step-pill';
-    if (booking.step === stepNum) cls += ' active';
-    else if (booking.step > stepNum) cls += ' done';
-    
-    wrapper.innerHTML += `
-      <div class="${cls}" onclick="goToStep(${stepNum})">
-        ${booking.step > stepNum ? '<i class="fa-solid fa-check"></i>' : stepNum}
-        <span>${lbl}</span>
-      </div>
-    `;
-    if (i < labels.length - 1) {
-      wrapper.innerHTML += '<div class="step-connector"></div>';
-    }
-  });
-}
-
-function goToStep(num){
-  if (num < booking.step) {
-    booking.step = num;
-    buildStepper();
-    updateStepVisibility();
-    updateTicketBar();
-  } else if (num > booking.step) {
-    for (let i = booking.step; i < num; i++) {
-      if (!stepIsValid(i)) return;
-      booking.step = i + 1;
-    }
-    buildStepper();
-    updateStepVisibility();
-    updateTicketBar();
-  }
-}
-
-function stepIsValid(stepNum){
-  if (stepNum === 1) return booking.services.length > 0;
-  if (stepNum === 2) return booking.coiffeurId !== null;
-  if (stepNum === 3) return booking.date !== null && booking.heure !== null;
-  if (stepNum === 4) return booking.nom.trim().length >= 2 && booking.tel.trim().length >= 8;
-  return true;
-}
-
-function updateStepVisibility(){
-  for (let i=1; i<=5; i++) {
-    const el = document.getElementById(`c-step-${i}`);
-    if (el) el.classList.toggle('masque', booking.step !== i);
-  }
-  document.getElementById('c-step-success').classList.add('masque');
-  
-  if (booking.step === 3) {
-    renderCalendar();
-  }
-  if (booking.step === 5) {
-    renderConfirmationRecap();
-  }
-}
-
-function prevStep(){
-  if (booking.step > 1) {
-    booking.step--;
-    buildStepper();
-    updateStepVisibility();
-    updateTicketBar();
-  }
-}
-
-function nextStep(){
-  if (stepIsValid(booking.step)) {
-    if (booking.step === 5) {
-      soumettreReservation();
-    } else {
-      booking.step++;
-      buildStepper();
-      updateStepVisibility();
-      updateTicketBar();
-    }
-  }
-}
-
-function updateTicketBar(){
-  const bar = document.getElementById('ticket-bar');
-  if (booking.step >= 5 || booking.services.length === 0) {
-    bar.classList.remove('show');
-    return;
-  }
-  bar.classList.add('show');
-  
-  const total = booking.services.reduce((acc, id) => acc + (appData.services[id]?.tarif || 0), 0);
-  const count = booking.services.length;
-  
-  document.getElementById('ticket-count-lbl').textContent = `${count} prestation${count>1?'s':''}`;
-  document.getElementById('ticket-total').textContent = `${total} ${appData.settings.devise}`;
-  
-  document.getElementById('btn-prev').style.display = booking.step === 1 ? 'none' : 'inline-flex';
-  const nextBtn = document.getElementById('btn-next');
-  nextBtn.disabled = !stepIsValid(booking.step);
-  
-  if (booking.step === 4) {
-    nextBtn.innerHTML = `Confirmer <i class="fa-solid fa-check"></i>`;
-  } else {
-    nextBtn.innerHTML = `Continuer <i class="fa-solid fa-arrow-right"></i>`;
-  }
-}
-
+// ================= CLIENT : SERVICES (STEP 1) =================
 function renderClientServices(){
   const grid = document.getElementById('grid-services-client');
-  grid.innerHTML = '';
-  Object.entries(appData.services).forEach(([id, item]) => {
-    const isSelected = booking.services.includes(id);
-    grid.innerHTML += `
-      <div class="service-card ${isSelected?'selected':''}" onclick="toggleClientService('${id}')">
-        <div class="chk">${isSelected?'<i class="fa-solid fa-check"></i>':''}</div>
-        <h4>${item.nom}</h4>
-        <div class="service-price">${item.tarif} ${appData.settings.devise}</div>
-        <div class="service-duree"><i class="fa-regular fa-clock"></i> ${item.duree} min</div>
-      </div>
-    `;
-  });
-}
-
-function toggleClientService(id){
-  const index = booking.services.indexOf(id);
-  if (index === -1) {
-    booking.services.push(id);
-  } else {
-    booking.services.splice(index, 1);
+  if (!appData.services.length){
+    grid.innerHTML = `<div class="section-sub">Aucun service disponible pour l'instant. Revenez bientôt.</div>`;
+    return;
   }
+  grid.innerHTML = appData.services.map(([key, s]) => {
+    const isSel = booking.services.some(x => x.key === key);
+    return `<div class="service-card ${isSel?'selected':''}" onclick="toggleService('${key}')">
+      <div class="chk"><i class="fa-solid fa-check"></i></div>
+      <h4>${s.nom}</h4>
+      <div class="service-price">${money(s.tarif)}</div>
+      <div class="service-duree">${s.duree} min</div>
+    </div>`;
+  }).join('');
+}
+window.toggleService = (key) => {
+  const svc = appData.services.find(([k]) => k === key);
+  if (!svc) return;
+  const [k, s] = svc;
+  const idx = booking.services.findIndex(x => x.key === key);
+  if (idx >= 0) booking.services.splice(idx, 1);
+  else booking.services.push({ key: k, nom: s.nom, tarif: Number(s.tarif), duree: Number(s.duree) });
   renderClientServices();
   updateTicketBar();
-}
+};
 
+// ================= CLIENT : COIFFEURS (STEP 2) =================
 function renderClientCoiffeurs(){
   const grid = document.getElementById('grid-coiffeurs-client');
-  grid.innerHTML = '';
-  
-  grid.innerHTML += `
-    <div class="barber-card ${booking.coiffeurId==='indifferent'?'selected':''}" onclick="selectClientCoiffeur('indifferent', 'Peu importe')">
-      <div class="barber-avatar"><i class="fa-solid fa-users"></i></div>
-      <h4>Peu importe</h4>
-      <p style="color:var(--text-muted);font-size:.78rem;margin-top:4px;">Premier disponible</p>
-    </div>
-  `;
-  
-  Object.entries(appData.coiffeurs).forEach(([id, item]) => {
-    const isSelected = booking.coiffeurId === id;
-    const avatar = item.image ? `<img src="${item.image}">` : (item.nom[0] || '?');
-    grid.innerHTML += `
-      <div class="barber-card ${isSelected?'selected':''}" onclick="selectClientCoiffeur('${id}', '${item.nom}')">
-        <div class="barber-avatar">${avatar}</div>
-        <h4>${item.nom}</h4>
-        <p style="color:var(--text-muted);font-size:.78rem;margin-top:4px;">${item.specialite || 'Coiffeur'}</p>
-      </div>
-    `;
-  });
+  const anyCard = `<div class="barber-card ${booking.coiffeurId==='any'?'selected':''}" onclick="selectCoiffeur('any','Sans préférence')">
+    <div class="barber-avatar"><i class="fa-solid fa-shuffle"></i></div>
+    <div style="font-weight:600;">Sans préférence</div>
+    <div class="kpi-sub">Premier disponible</div>
+  </div>`;
+  const cards = appData.coiffeurs.map(([key, c]) => {
+    const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(c.nom||'Barber')}&background=c9a227&color=000`;
+    const avatarContent = c.image ? `<img src="${c.image}" alt="${c.nom}" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='${fallbackUrl}'">` : `${(c.nom||'?').charAt(0).toUpperCase()}`;
+    return `
+    <div class="barber-card ${booking.coiffeurId===key?'selected':''}" onclick="selectCoiffeur('${key}','${(c.nom||'').replace(/'/g,"\\'")}')">
+      <div class="barber-avatar">${avatarContent}</div>
+      <div style="font-weight:600;">${c.nom}</div>
+      <div class="kpi-sub">${c.specialite||'Barbier'}</div>
+    </div>`;
+  }).join('');
+  grid.innerHTML = anyCard + cards;
 }
-
-function selectClientCoiffeur(id, nom){
-  booking.coiffeurId = id;
+window.selectCoiffeur = (key, nom) => {
+  booking.coiffeurId = key;
   booking.coiffeurNom = nom;
   renderClientCoiffeurs();
   updateTicketBar();
-}
+  setTimeout(() => { if (stepIsValid(booking.step)) window.nextStep(); }, 350);
+};
 
-function validateStep4(){
-  booking.nom = document.getElementById('input-nom').value;
-  booking.tel = document.getElementById('input-tel').value;
-  updateTicketBar();
-}
-
-// ---------- CALENDRIER & VALIDATION CRÉNEAU ----------
-function renderCalendar(){
-  const wrapper = document.getElementById('calendar-wrapper');
-  wrapper.innerHTML = '';
-  
-  const year = clientCalendarDate.getFullYear();
-  const month = clientCalendarDate.getMonth();
-  
-  const monthName = clientCalendarDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-  const isThisMonth = new Date().getMonth() === month && new Date().getFullYear() === year;
-  
-  const prevMonthBtnDisabled = isThisMonth ? 'disabled' : '';
-  
-  wrapper.innerHTML += `
-    <div class="calendar-header">
-      <div class="calendar-title">${monthName}</div>
-      <div class="calendar-nav">
-        <button class="calendar-btn" ${prevMonthBtnDisabled} onclick="navigateCalendar(-1)"><i class="fa-solid fa-chevron-left"></i></button>
-        <button class="calendar-btn" onclick="navigateCalendar(1)"><i class="fa-solid fa-chevron-right"></i></button>
+// ================= CLIENT : GALERIE =================
+function renderClientGalerie(){
+  const el = document.getElementById('client-gallery');
+  const section = document.getElementById('client-gallery-section');
+  if (appData.galerie && appData.galerie.length > 0) {
+    section.classList.remove('masque');
+    el.innerHTML = appData.galerie.map(([k, g]) => `
+      <div class="gallery-item">
+        <img src="${g.url}" alt="Galerie" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1599351431202-1e0f0137899a?q=80&w=400&auto=format&fit=crop'">
       </div>
-    </div>
-    <div class="calendar-grid" id="calendar-days-grid"></div>
-  `;
-  
-  const grid = document.getElementById('calendar-days-grid');
-  JOURS.forEach(j => {
-    grid.innerHTML += `<div class="calendar-day-name">${j.slice(0,3)}</div>`;
-  });
-  
-  const firstDayIndex = (new Date(year, month, 1).getDay() + 6) % 7; 
-  const totalDays = new Date(year, month + 1, 0).getDate();
-  
-  for (let i = 0; i < firstDayIndex; i++) {
-    grid.innerHTML += `<div class="calendar-day empty"></div>`;
+    `).join('');
+  } else {
+    section.classList.add('masque');
   }
+}
+
+// ================= CLIENT : DATE & HEURE (STEP 3) =================
+let currentMonth = new Date().getMonth();
+let currentYear = new Date().getFullYear();
+
+function getFirstAvailableDate() {
+  let cursor = new Date();
+  const [fh, fm] = (appData.settings.fermeture || '20:00').split(':').map(Number);
+  const closingTime = fh * 60 + fm;
+  const nowTime = cursor.getHours() * 60 + cursor.getMinutes();
+  
+  if (nowTime >= closingTime) {
+      cursor.setDate(cursor.getDate() + 1);
+  }
+
+  let guard = 0;
+  while (guard < 60){
+    if (!(appData.settings.joursFermeture||[]).includes(cursor.getDay())){
+      return new Date(cursor);
+    }
+    cursor.setDate(cursor.getDate() + 1);
+    guard++;
+  }
+  return new Date();
+}
+
+function renderCalendar(){
+  const wrap = document.getElementById('calendar-wrapper');
+  if (!wrap) return;
+
+  const monthNames = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+  const dayNames = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+
+  const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
   
   const today = new Date();
   today.setHours(0,0,0,0);
   
-  for (let day = 1; day <= totalDays; day++) {
-    const currentDate = new Date(year, month, day);
-    const dateStr = `${String(day).padStart(2,'0')}/${String(month+1).padStart(2,'0')}/${year}`;
-    const dayOfWeek = currentDate.getDay();
-    
-    let isClosed = appData.settings.joursFermeture.includes(dayOfWeek);
-    let isPast = currentDate < today;
-    let isDisabled = isClosed || isPast;
-    
-    let cls = 'calendar-day';
-    if (isDisabled) cls += ' disabled';
-    if (booking.date === dateStr) cls += ' selected';
-    
-    grid.innerHTML += `
-      <div class="${cls}" onclick="${isDisabled?'':`selectClientDate('${dateStr}')`}">${day}</div>
-    `;
+  const isCurrentMonth = currentYear === today.getFullYear() && currentMonth === today.getMonth();
+
+  let html = `
+    <div class="calendar-header">
+      <div class="calendar-title">${monthNames[currentMonth]} ${currentYear}</div>
+      <div class="calendar-nav">
+        <button class="calendar-btn" onclick="prevMonth()" ${isCurrentMonth ? 'disabled' : ''}><i class="fa-solid fa-chevron-left"></i></button>
+        <button class="calendar-btn" onclick="nextMonth()"><i class="fa-solid fa-chevron-right"></i></button>
+      </div>
+    </div>
+    <div class="calendar-grid">
+  `;
+
+  for (let d of dayNames) {
+    html += `<div class="calendar-day-name">${d}</div>`;
   }
-  
-  renderTimeGrid();
-}
 
-function navigateCalendar(dir) {
-  clientCalendarDate.setMonth(clientCalendarDate.getMonth() + dir);
-  renderCalendar();
-}
-
-function selectClientDate(dateStr){
-  booking.date = dateStr;
-  booking.heure = null; 
-  renderCalendar();
-  updateTicketBar();
-}
-
-// VALIDATION DU CRÉNEAU : Filtre les réservations prises
-function renderTimeGrid(){
-  const grid = document.getElementById('time-grid');
-  grid.innerHTML = '';
-  
-  if (!booking.date) {
-    grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--text-dim);font-size:.85rem;">Sélectionnez une date d'abord</div>`;
-    return;
+  for (let i = 0; i < firstDay; i++) {
+    html += `<div class="calendar-day empty"></div>`;
   }
-  
-  const [openH, openM] = appData.settings.ouverture.split(':').map(Number);
-  const [closeH, closeM] = appData.settings.fermeture.split(':').map(Number);
-  const interval = appData.settings.dureeSlot;
-  
-  let current = new Date();
-  current.setHours(openH, openM, 0, 0);
-  
-  const end = new Date();
-  end.setHours(closeH, closeM, 0, 0);
-  
-  const todayStr = new Date().toLocaleDateString('fr-FR');
-  const rightNow = new Date();
-  
-  // Extraire les rendez-vous pris à cette date pour ce coiffeur (hors annulations)
-  const busySlots = Object.values(appData.reservations).filter(res => {
-    if (res.date !== booking.date || res.statut === 'annule') return false;
+
+  for (let i = 1; i <= daysInMonth; i++) {
+    const d = new Date(currentYear, currentMonth, i);
+    const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     
-    // Si l'utilisateur choisit un coiffeur précis, on bloque le créneau de ce coiffeur
-    if (booking.coiffeurId !== 'indifferent') {
-      return res.coiffeurId === booking.coiffeurId;
+    let disabled = false;
+    if (d < today) {
+      disabled = true;
     }
-    return false;
-  }).map(res => res.heure);
-  
-  while (current < end) {
-    const hh = String(current.getHours()).padStart(2,'0');
-    const mm = String(current.getMinutes()).padStart(2,'0');
-    const timeStr = `${hh}:${mm}`;
-    
-    // Vérification du créneau passé s'il s'agit d'aujourd'hui
-    let isPast = false;
-    if (booking.date === todayStr) {
-      const slotDateTime = new Date();
-      slotDateTime.setHours(current.getHours(), current.getMinutes(), 0, 0);
-      if (slotDateTime <= rightNow) {
-        isPast = true;
+    if (d.getTime() === today.getTime()) {
+      const [fh, fm] = (appData.settings.fermeture || '20:00').split(':').map(Number);
+      const closingTime = fh * 60 + fm;
+      const nowTime = new Date().getHours() * 60 + new Date().getMinutes();
+      if (nowTime >= closingTime) {
+        disabled = true;
       }
     }
     
-    const isTaken = busySlots.includes(timeStr);
-    const isSelected = booking.heure === timeStr;
+    if ((appData.settings.joursFermeture||[]).includes(d.getDay())) {
+      disabled = true;
+    }
+
+    const sel = booking.date === iso ? 'selected' : '';
+    const click = disabled ? '' : `onclick="selectDate('${iso}')"`;
+    const classes = `calendar-day ${sel} ${disabled ? 'disabled' : ''}`;
     
-    let cls = 'time-chip';
-    if (isTaken || isPast) cls += ' taken';
-    else if (isSelected) cls += ' selected';
-    
-    grid.innerHTML += `
-      <div class="${cls}" onclick="${(isTaken || isPast) ? '' : `selectClientHeure('${timeStr}')`}">${timeStr}</div>
-    `;
-    
-    current.setMinutes(current.getMinutes() + interval);
+    html += `<div class="${classes}" ${click}>${i}</div>`;
   }
-}
 
-function selectClientHeure(timeStr){
-  booking.heure = timeStr;
+  html += `</div>`;
+  wrap.innerHTML = html;
   renderTimeGrid();
-  updateTicketBar();
 }
 
-// ---------- CONFIRMATION & SOUMISSION ----------
-function renderConfirmationRecap(){
-  const box = document.getElementById('confirm-recap');
-  const servicesNom = booking.services.map(id => appData.services[id]?.nom || 'Service inconnu').join(', ');
-  const total = booking.services.reduce((acc, id) => acc + (appData.services[id]?.tarif || 0), 0);
+window.prevMonth = () => {
+  currentMonth--;
+  if (currentMonth < 0) {
+    currentMonth = 11;
+    currentYear--;
+  }
+  renderCalendar();
+};
+
+window.nextMonth = () => {
+  currentMonth++;
+  if (currentMonth > 11) {
+    currentMonth = 0;
+    currentYear++;
+  }
+  renderCalendar();
+};
+
+window.selectDate = (iso) => { booking.date = iso; booking.heure = null; renderCalendar(); updateTicketBar(); };
+
+function generateSlots(){
+  const [oh, om] = (appData.settings.ouverture || '09:00').split(':').map(Number);
+  const [fh, fm] = (appData.settings.fermeture || '20:00').split(':').map(Number);
+  const slots = [];
+  let t = oh*60+om;
+  const end = fh*60+fm;
+  const step = Number(appData.settings.dureeSlot) || 30;
   
-  box.innerHTML = `
-    <div class="confirm-line"><strong>Prestations :</strong> <span>${servicesNom}</span></div>
-    <div class="confirm-line"><strong>Coiffeur :</strong> <span>${booking.coiffeurNom}</span></div>
-    <div class="confirm-line"><strong>Date &amp; Heure :</strong> <span>Le ${booking.date} à ${booking.heure}</span></div>
-    <div class="confirm-line"><strong>Nom complet :</strong> <span>${booking.nom}</span></div>
-    <div class="confirm-line"><strong>Téléphone :</strong> <span>${booking.tel}</span></div>
-    <div class="confirm-line" style="border:none; margin-top:10px; font-size:1.15rem;"><strong style="color:var(--gold-light);">Total à régler :</strong> <span style="color:var(--gold-light); font-weight:700;">${total} ${appData.settings.devise}</span></div>
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const isoToday = `${year}-${month}-${day}`;
+  
+  const isToday = booking.date === isoToday;
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  while (t + step <= end){
+    if (!isToday || t > currentMinutes) {
+      const h = String(Math.floor(t/60)).padStart(2,'0');
+      const m = String(t%60).padStart(2,'0');
+      slots.push(`${h}:${m}`);
+    }
+    t += step;
+  }
+  return slots;
+}
+
+function renderTimeGrid(){
+  const grid = document.getElementById('time-grid');
+  if (!booking.date){ grid.innerHTML = `<div class="section-sub">Choisissez une date pour voir les créneaux</div>`; return; }
+  const slots = generateSlots();
+  if (slots.length === 0) {
+    grid.innerHTML = `<div class="section-sub" style="color:var(--warning); text-align:center; padding: 20px;">Aucun créneau disponible pour cette date.</div>`;
+    return;
+  }
+  const taken = new Set(
+    appData.reservations
+      .filter(([k,r]) => r.date === booking.date && r.statut !== 'annule')
+      .map(([k,r]) => r.heure)
+  );
+  grid.innerHTML = slots.map(s => {
+    const isTaken = taken.has(s);
+    const sel = booking.heure === s ? 'selected' : '';
+    return `<div class="time-chip ${sel} ${isTaken?'taken':''}" onclick="${isTaken?'':`selectHeure('${s}')`}">${s}</div>`;
+  }).join('');
+}
+
+window.selectHeure = (h) => { 
+  booking.heure = h; 
+  renderTimeGrid(); 
+  updateTicketBar(); 
+  setTimeout(() => { if (stepIsValid(booking.step)) window.nextStep(); }, 350);
+};
+
+// ================= CLIENT : STEP 4 =================
+window.validateStep4 = () => {
+  booking.nom = document.getElementById('input-nom').value.trim();
+  booking.tel = document.getElementById('input-tel').value.trim();
+  updateTicketBar();
+};
+
+// ================= CLIENT : STEP 5 =================
+function renderConfirmRecap(){
+  const total = booking.services.reduce((s,x)=>s+x.tarif,0);
+  document.getElementById('confirm-recap').innerHTML = `
+    <div class="confirm-line"><span>Client</span><strong>${booking.nom}</strong></div>
+    <div class="confirm-line"><span>Téléphone</span><strong>${booking.tel}</strong></div>
+    <div class="confirm-line"><span>Coiffeur</span><strong>${booking.coiffeurNom}</strong></div>
+    <div class="confirm-line"><span>Date</span><strong>${new Date(booking.date).toLocaleDateString('fr-FR',{weekday:'long', day:'numeric', month:'long'})}</strong></div>
+    <div class="confirm-line"><span>Heure</span><strong>${booking.heure}</strong></div>
+    <div class="confirm-line"><span>Prestations</span><strong>${booking.services.map(s=>s.nom).join(', ')}</strong></div>
+    <div class="confirm-line" style="font-size:1.1rem;"><span>Total</span><strong style="color:var(--gold);font-family:var(--font-mono);">${money(total)}</strong></div>
   `;
 }
 
-async function soumettreReservation(){
-  document.getElementById('loader').classList.remove('masque');
-  try {
-    const total = booking.services.reduce((acc, id) => acc + (appData.services[id]?.tarif || 0), 0);
-    const result = await apiPost('creerReservation', {
-      clientNom: booking.nom,
-      clientTel: booking.tel,
-      serviceIds: booking.services.join(','),
-      coiffeurId: booking.coiffeurId,
-      date: booking.date,
-      heure: booking.heure,
-      statut: 'attente'
-    });
-    
-    document.getElementById('loader').classList.add('masque');
-    
-    if (result && result.statut === 'success') {
-      booking.step = 'success';
-      document.getElementById('ticket-bar').classList.remove('show');
-      document.getElementById('c-step-5').classList.add('masque');
-      document.getElementById('stepper').innerHTML = '';
-      
-      const succ = document.getElementById('c-step-success');
-      succ.classList.remove('masque');
-      document.getElementById('success-ref').textContent = `Le salon Barber Pro DZ a reçu votre réservation pour le ${booking.date} à ${booking.heure}.`;
-      
-      syncApp(); 
-    } else {
-      alert("Erreur lors de la réservation : " + (result.message || 'Serveur injoignable'));
-    }
-  } catch(e) {
-    document.getElementById('loader').classList.add('masque');
-    alert("Impossible de soumettre la réservation. Veuillez réessayer.");
+// ================= STEPPER LOGIC =================
+const STEP_LABELS = ['Prestations','Coiffeur','Date & Heure','Coordonnées','Confirmation'];
+function renderStepper(){
+  const el = document.getElementById('stepper');
+  el.innerHTML = STEP_LABELS.map((lbl,i) => {
+    const n = i+1;
+    const cls = n < booking.step ? 'done' : (n === booking.step ? 'active' : '');
+    const connector = n < STEP_LABELS.length ? '<div class="step-connector"></div>' : '';
+    const click = n < booking.step ? `onclick="window.goToStep(${n})"` : '';
+    const style = n < booking.step ? 'cursor:pointer; transition:0.2s;' : 'transition:0.2s;';
+    return `<div class="step-pill ${cls}" style="${style}" ${click}>${n<booking.step?'<i class="fa-solid fa-check"></i>':n}. ${lbl}</div>${connector}`;
+  }).join('');
+}
+
+window.goToStep = (n) => {
+  if (n < booking.step) {
+    booking.step = n;
+    renderBookingStep();
+  }
+};
+
+function stepIsValid(step){
+  switch(step){
+    case 1: return booking.services.length > 0;
+    case 2: return !!booking.coiffeurId;
+    case 3: return !!booking.date && !!booking.heure;
+    case 4: return booking.nom.length > 1 && booking.tel.length > 6;
+    default: return true;
   }
 }
 
-window.resetBooking = function(){
+function renderBookingStep(){
+  for (let i=1;i<=5;i++){
+    const stepEl = document.getElementById(`c-step-${i}`);
+    if (stepEl) stepEl.classList.toggle('masque', booking.step !== i);
+  }
+  document.getElementById('c-step-success').classList.add('masque');
+  renderStepper();
+  if (booking.step === 3) {
+    if (!booking.date) {
+      const d = getFirstAvailableDate();
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      booking.date = `${year}-${month}-${day}`;
+      
+      currentMonth = d.getMonth();
+      currentYear = d.getFullYear();
+    }
+    renderCalendar();
+  }
+  if (booking.step === 5) renderConfirmRecap();
+  updateTicketBar();
+}
+
+function updateTicketBar(){
+  const bar = document.getElementById('ticket-bar');
+  const success = !document.getElementById('c-step-success').classList.contains('masque');
+  if (success){ bar.classList.remove('show'); return; }
+
+  const total = booking.services.reduce((s,x)=>s+x.tarif,0);
+  document.getElementById('ticket-count-lbl').textContent = `${booking.services.length} prestation${booking.services.length>1?'s':''}`;
+  document.getElementById('ticket-total').textContent = money(total);
+  document.getElementById('btn-prev').style.visibility = booking.step === 1 ? 'hidden' : 'visible';
+
+  const nextBtn = document.getElementById('btn-next');
+  nextBtn.disabled = !stepIsValid(booking.step);
+  nextBtn.innerHTML = booking.step === 5 ? 'Confirmer <i class="fa-solid fa-check"></i>' : 'Continuer <i class="fa-solid fa-arrow-right"></i>';
+
+  bar.classList.toggle('show', booking.services.length > 0);
+}
+
+window.nextStep = () => {
+  if (!stepIsValid(booking.step)) return;
+  if (booking.step === 5){ submitReservation(); return; }
+  booking.step++;
+  renderBookingStep();
+};
+window.prevStep = () => {
+  if (booking.step === 1) return;
+  booking.step--;
+  renderBookingStep();
+};
+
+async function submitReservation(){
+  const btn = document.getElementById('btn-next');
+  if (btn) btn.disabled = true;
+
+  // --- VALIDATION DE DERNIÈRE MINUTE ---
+  try {
+    const freshData = await apiGet();
+    // Validation stricte : date, heure ET coiffeur
+    const isTaken = freshData.reservations.some(([k, r]) =>
+      r.date === booking.date &&
+      r.heure === booking.heure &&
+      r.coiffeurNom === booking.coiffeurNom && // Vérification du coiffeur spécifique
+      r.statut !== 'annule'
+    );
+    
+    if (isTaken) {
+      alert("Ce créneau est déjà réservé pour ce coiffeur. Veuillez en choisir un autre ou un autre coiffeur.");
+      syncAndRender();
+      if (btn) btn.disabled = false;
+      return;
+    }
+  } catch (e) {
+    console.error("Erreur vérification:", e);
+  }
+  // -------------------------------------
+
+  try {
+    const total = booking.services.reduce((s,x)=>s+x.tarif,0);
+    const serviceStr = booking.services.map(s => s.nom).join(' + ');
+    await apiPost('createReservation', { 
+      nom: booking.nom, tel: booking.tel, service: serviceStr, coiffeur: booking.coiffeurNom, date: booking.date, heure: booking.heure, prix: total
+    });
+    document.getElementById('c-step-5').classList.add('masque');
+    document.getElementById('c-step-success').classList.remove('masque');
+    document.getElementById('success-ref').textContent = `${booking.nom}, votre rendez-vous du ${new Date(booking.date).toLocaleDateString('fr-FR')} à ${booking.heure} est enregistré. Le salon le confirmera sous peu.`;
+    updateTicketBar();
+    syncAndRender();
+  } catch(e) {
+    alert("Impossible de communiquer avec le serveur (Sheets non connecté). Vérifiez la console.");
+    if (btn) btn.disabled = false;
+  }
+}
+
+window.resetBooking = () => {
   booking = { step: 1, services: [], coiffeurId: null, coiffeurNom: null, date: null, heure: null, nom: '', tel: '' };
   document.getElementById('input-nom').value = '';
   document.getElementById('input-tel').value = '';
-  initApp();
+  renderClientServices();
+  renderClientCoiffeurs();
+  renderBookingStep();
 };
 
-// ---------- INTERFACE D'ADMINISTRATION ----------
-function renderAdmin(){
-  if (adminTab === 'dashboard') renderAdminDashboard();
-  else if (adminTab === 'reservations') renderReservationsTable();
-  else if (adminTab === 'services') renderAdminServices();
-  else if (adminTab === 'coiffeurs') renderAdminCoiffeurs();
-  else if (adminTab === 'galerie') renderAdminGalerie();
-  else if (adminTab === 'parametres') renderAdminSettings();
-}
+// ================= ADMIN : DASHBOARD =================
+let myChart;
+function renderDashboard(){
+  let totalCA = 0, countAttente = 0;
+  const serviceStats = {};
+  appData.reservations.forEach(([k,r]) => {
+    if (r.statut !== 'annule') totalCA += Number(r.total || 0);
+    if (r.statut === 'attente') countAttente++;
+    (r.prestations||[]).forEach(p => { serviceStats[p.nom] = (serviceStats[p.nom]||0)+1; });
+  });
+  document.getElementById('kpi-ca').textContent = money(totalCA);
+  document.getElementById('kpi-total').textContent = appData.reservations.length;
+  document.getElementById('kpi-attente').textContent = `${countAttente} en attente`;
+  const top = Object.entries(serviceStats).sort((a,b)=>b[1]-a[1])[0];
+  document.getElementById('kpi-top').textContent = top ? top[0] : 'Aucun';
+  document.getElementById('kpi-coiffeurs').textContent = appData.coiffeurs.length;
 
-function renderAdminDashboard(){
-  const rList = Object.values(appData.reservations);
-  
-  const ca = rList.filter(r => r.statut === 'confirme').reduce((acc, r) => {
-    const resCost = r.serviceIds.reduce((sum, id) => sum + (appData.services[id]?.tarif || 0), 0);
-    return acc + resCost;
-  }, 0);
-  document.getElementById('kpi-ca').textContent = `${ca} ${appData.settings.devise}`;
-  
-  document.getElementById('kpi-total').textContent = rList.length;
-  
-  const attente = rList.filter(r => r.statut === 'attente').length;
-  document.getElementById('kpi-attente').textContent = `${attente} en attente`;
-  
-  document.getElementById('kpi-coiffeurs').textContent = Object.keys(appData.coiffeurs).length;
-  
-  const counts = {};
-  rList.forEach(r => {
-    r.serviceIds.forEach(id => {
-      counts[id] = (counts[id]||0) + 1;
-    });
-  });
-  let topService = 'Aucun';
-  let topVal = 0;
-  Object.entries(counts).forEach(([id, count]) => {
-    if (count > topVal) {
-      topVal = count;
-      topService = appData.services[id]?.nom || id;
-    }
-  });
-  document.getElementById('kpi-top').textContent = topService;
-  
-  const sorted = [...rList].sort((a,b)=> b.timestamp - a.timestamp).slice(0, 5);
+  const recent = [...appData.reservations].sort((a,b)=> (b[1].creeLe||0)-(a[1].creeLe||0)).slice(0,6);
   const tbody = document.getElementById('dash-table-body');
-  tbody.innerHTML = '';
-  if (sorted.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty-row">Aucun rendez-vous enregistré</td></tr>`;
-  } else {
-    sorted.forEach(r => {
-      const sNoms = r.serviceIds.map(id => appData.services[id]?.nom || 'Prestation').join(', ');
-      const prix = r.serviceIds.reduce((acc, id) => acc + (appData.services[id]?.tarif || 0), 0);
-      tbody.innerHTML += `
-        <tr>
-          <td><strong>${r.clientNom}</strong><div style="font-size:.72rem;color:var(--text-muted);">${r.clientTel}</div></td>
-          <td>${sNoms}</td>
-          <td style="font-family:var(--font-mono);">${r.date} ${r.heure}</td>
-          <td style="font-family:var(--font-mono);font-weight:700;color:var(--gold-light);">${prix} ${appData.settings.devise}</td>
-          <td><span class="status status-${r.statut}">${STATUT_CODE_TO_FR[r.statut]}</span></td>
-        </tr>
-      `;
-    });
-  }
-  
-  renderActivityChart();
+  tbody.innerHTML = recent.length ? recent.map(([k,r]) => rowHtml(r,false)).join('') :
+    `<tr><td colspan="5" class="empty-row">Aucune réservation pour le moment</td></tr>`;
+
+  const dataMap = {};
+  appData.reservations.forEach(([k,r]) => { dataMap[r.date] = (dataMap[r.date]||0)+1; });
+  const labels = Object.keys(dataMap).sort();
+  const values = labels.map(l => dataMap[l]);
+  const ctx = document.getElementById('chartActivity').getContext('2d');
+  if (myChart) myChart.destroy();
+  myChart = new Chart(ctx, {
+    type:'line',
+    data:{ labels, datasets:[{ label:'Rendez-vous', data: values, borderColor:'#c9a227', tension:.4, fill:true, backgroundColor:'rgba(201,162,39,.12)' }] },
+    options:{ responsive:true, plugins:{legend:{display:false}}, scales:{ y:{beginAtZero:true, grid:{color:'#2a2a30'}, ticks:{color:'#8c8c94'}}, x:{grid:{color:'#2a2a30'}, ticks:{color:'#8c8c94'}} } }
+  });
 }
 
-let myChart = null;
-function renderActivityChart(){
-  const ctx = document.getElementById('chartActivity');
-  if (!ctx) return;
-  if (myChart) myChart.destroy();
-  
-  const rList = Object.values(appData.reservations);
-  const labels = [];
-  const counts = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const label = d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' });
-    const key = d.toLocaleDateString('fr-FR');
-    labels.push(label);
-    counts.push(rList.filter(r => r.date === key).length);
-  }
-  
-  myChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        label: 'RDV',
-        data: counts,
-        borderColor: '#c9a227',
-        backgroundColor: 'rgba(201,162,39,.1)',
-        borderWidth: 2,
-        fill: true,
-        tension: 0.3
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { display: false }, ticks: { color: '#8c8c94', font: { size: 9 } } },
-        y: { grid: { color: 'rgba(255,255,255,.05)' }, ticks: { precision: 0, color: '#8c8c94', font: { size: 9 } } }
-      }
-    }
-  });
+function rowHtml(r, withActions, key){
+  return `<tr>
+    <td><div style="font-weight:600;">${r.clientNom}</div><div style="font-size:.75rem;color:var(--text-muted);">${r.clientTel}</div></td>
+    <td>${(r.prestations||[]).map(p=>p.nom).join(', ')||'N/A'}</td>
+    ${withActions ? `<td>${r.coiffeurNom||'—'}</td>` : ''}
+    <td><div>${new Date(r.date).toLocaleDateString('fr-FR')}</div><div style="color:var(--gold);font-weight:700;font-family:var(--font-mono);">${r.heure}</div></td>
+    <td style="font-family:var(--font-mono);">${money(r.total)}</td>
+    <td><span class="status status-${r.statut||'confirme'}">${r.statut||'confirmé'}</span></td>
+    ${withActions ? `<td><div style="display:flex;gap:5px;">
+        <button class="btn btn-outline btn-sm" title="Confirmer" onclick="window.updateStatus('${key}','confirme')"><i class="fa-solid fa-check"></i></button>
+        <button class="btn btn-outline btn-sm" title="Annuler" onclick="window.updateStatus('${key}','annule')"><i class="fa-solid fa-xmark"></i></button>
+        <button class="btn btn-danger btn-sm" title="Supprimer" onclick="window.deleteResa('${key}')"><i class="fa-solid fa-trash"></i></button>
+      </div></td>` : ''}
+  </tr>`;
 }
 
 function renderReservationsTable(){
-  const search = document.getElementById('filter-search').value.toLowerCase();
-  const statut = document.getElementById('filter-statut').value;
   const tbody = document.getElementById('admin-table-body');
-  tbody.innerHTML = '';
-  
-  let list = Object.entries(appData.reservations).map(([id, r]) => ({ id, ...r }));
-  list.sort((a,b)=> b.timestamp - a.timestamp);
-  
-  if (statut) {
-    list = list.filter(r => r.statut === statut);
-  }
-  if (search) {
-    list = list.filter(r => r.clientNom.toLowerCase().includes(search) || r.clientTel.includes(search));
-  }
-  
-  if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-row">Aucun résultat trouvé</td></tr>`;
-    return;
-  }
-  
-  list.forEach(r => {
-    const sNoms = r.serviceIds.map(id => appData.services[id]?.nom || 'Prestation').join(', ');
-    const coiffeur = appData.coiffeurs[r.coiffeurId]?.nom || 'Peu importe';
-    const prix = r.serviceIds.reduce((acc, id) => acc + (appData.services[id]?.tarif || 0), 0);
-    
-    let actionsBtn = '';
-    if (r.statut === 'attente') {
-      actionsBtn = `
-        <button class="btn btn-outline btn-sm" onclick="majStatut('${r.id}', 'confirme')" style="color:var(--success); border-color:rgba(52,211,153,.2);"><i class="fa-solid fa-check"></i></button>
-        <button class="btn btn-outline btn-sm" onclick="majStatut('${r.id}', 'annule')" style="color:var(--danger); border-color:rgba(248,113,113,.2);"><i class="fa-solid fa-xmark"></i></button>
-      `;
-    } else if (r.statut === 'confirme') {
-      actionsBtn = `
-        <button class="btn btn-outline btn-sm" onclick="majStatut('${r.id}', 'annule')" style="color:var(--danger); border-color:rgba(248,113,113,.2);"><i class="fa-solid fa-ban"></i> Annuler</button>
-      `;
-    } else {
-      actionsBtn = `<span style="color:var(--text-dim);font-size:.78rem;">Archivé</span>`;
-    }
-    
-    tbody.innerHTML += `
-      <tr>
-        <td><strong>${r.clientNom}</strong><div style="font-size:.72rem;color:var(--text-muted);">${r.clientTel}</div></td>
-        <td>${sNoms}</td>
-        <td>${coiffeur}</td>
-        <td style="font-family:var(--font-mono);">${r.date} ${r.heure}</td>
-        <td style="font-family:var(--font-mono);font-weight:700;">${prix} ${appData.settings.devise}</td>
-        <td><span class="status status-${r.statut}">${STATUT_CODE_TO_FR[r.statut]}</span></td>
-        <td><div style="display:flex;gap:6px;">${actionsBtn}</div></td>
-      </tr>
-    `;
-  });
+  if (!tbody) return;
+  const statutFilter = document.getElementById('filter-statut')?.value || '';
+  const search = (document.getElementById('filter-search')?.value || '').toLowerCase();
+  let rows = appData.reservations.filter(([k,r]) => {
+    if (statutFilter && (r.statut||'confirme') !== statutFilter) return false;
+    if (search && !r.clientNom.toLowerCase().includes(search)) return false;
+    return true;
+  }).sort((a,b)=> (b[1].creeLe||0)-(a[1].creeLe||0));
+  tbody.innerHTML = rows.length ? rows.map(([k,r]) => rowHtml(r, true, k)).join('') :
+    `<tr><td colspan="7" class="empty-row">Aucune réservation trouvée</td></tr>`;
 }
 
-async function majStatut(id, statut){
-  document.getElementById('loader').classList.remove('masque');
-  try {
-    const res = await apiPost('majStatut', { id, statut });
-    if (res && res.statut === 'success') {
-      await syncApp();
-    } else {
-      alert("Échec de la mise à jour");
-    }
-  } catch(e) {
-    alert("Une erreur s'est produite");
-  } finally {
-    document.getElementById('loader').classList.add('masque');
-  }
-}
+window.updateStatus = async (id, status) => { await apiPost('updateReservationStatus', { id, statut: STATUT_CODE_TO_FR[status] }); syncAndRender(); };
+window.deleteResa = async (id) => { if (confirm('Supprimer définitivement cette réservation ?')) { await apiPost('deleteReservation', { id }); syncAndRender(); } };
 
-function renderAdminServices(){
-  const list = document.getElementById('services-list');
-  list.innerHTML = '';
-  Object.entries(appData.services).forEach(([id, item]) => {
-    list.innerHTML += `
-      <div class="list-card">
-        <div>
-          <strong style="font-size:1.05rem;color:#fff;">${item.nom}</strong>
-          <div class="meta" style="margin-top:4px;"><i class="fa-regular fa-clock"></i> ${item.duree} min — <strong>${item.tarif} ${appData.settings.devise}</strong></div>
-        </div>
-        <button class="btn btn-danger btn-sm" onclick="supprimerService('${id}')"><i class="fa-solid fa-trash-can"></i></button>
-      </div>
-    `;
-  });
-}
+window.exportData = () => {
+  const header = ['Client','Téléphone','Services','Coiffeur','Date','Heure','Total','Statut'];
+  const lines = appData.reservations.map(([k,r]) => [
+    r.clientNom, r.clientTel, (r.prestations||[]).map(p=>p.nom).join(' + '),
+    r.coiffeurNom||'', r.date, r.heure, r.total, r.statut||'confirme'
+  ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(','));
+  const csv = [header.join(','), ...lines].join('\n');
+  const blob = new Blob(["\uFEFF"+csv], { type:'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `reservations_${Date.now()}.csv`; a.click();
+  URL.revokeObjectURL(url);
+};
 
-function renderAdminCoiffeurs(){
-  const list = document.getElementById('coiffeurs-list');
-  list.innerHTML = '';
-  Object.entries(appData.coiffeurs).forEach(([id, item]) => {
-    const photo = item.image ? `<img src="${item.image}" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">` : `<i class="fa-solid fa-user"></i>`;
-    list.innerHTML += `
-      <div class="list-card">
-        <div style="display:flex;align-items:center;gap:12px;">
-          <div class="barber-avatar" style="width:34px;height:34px;margin:0;font-size:.9rem;">${photo}</div>
-          <div>
-            <strong style="color:#fff;">${item.nom}</strong>
-            <div class="meta">${item.specialite || 'Coiffeur'}</div>
-          </div>
-        </div>
-        <button class="btn btn-danger btn-sm" onclick="supprimerCoiffeur('${id}')"><i class="fa-solid fa-trash-can"></i></button>
-      </div>
-    `;
-  });
-}
-
-function renderAdminGalerie(){
-  const list = document.getElementById('galerie-list');
-  list.innerHTML = '';
-  Object.entries(appData.galerie).forEach(([id, item]) => {
-    list.innerHTML += `
+// ================= ADMIN : SERVICES CRUD =================
+function renderServicesAdmin(){
+  const el = document.getElementById('services-list');
+  el.innerHTML = appData.services.length ? appData.services.map(([key,s]) => `
+    <div class="list-card">
       <div>
-        <div class="gallery-item"><img src="${item.url}" alt="Galerie"></div>
-        <button class="btn btn-danger btn-sm btn-block" onclick="supprimerGalerie('${id}')"><i class="fa-solid fa-trash-can"></i> Supprimer</button>
+        <div style="font-weight:600;">${s.nom}</div>
+        <div class="meta">${money(s.tarif)} · ${s.duree} min</div>
       </div>
-    `;
-  });
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-outline btn-sm" onclick='openServiceModal(${JSON.stringify(key)})'><i class="fa-solid fa-pen"></i></button>
+        <button class="btn btn-danger btn-sm" onclick="deleteService('${key}')"><i class="fa-solid fa-trash"></i></button>
+      </div>
+    </div>`).join('') : `<div class="section-sub">Aucun service. Ajoutez-en un pour commencer.</div>`;
 }
+window.openServiceModal = (key) => {
+  const existing = key ? appData.services.find(([k])=>k===key)?.[1] : null;
+  openModal(existing ? 'Modifier le service' : 'Nouveau service', `
+    <div class="form-group"><label class="form-label">Nom</label><input class="form-input" id="svc-nom" value="${existing?.nom||''}"></div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Tarif (${appData.settings.devise})</label><input type="number" class="form-input" id="svc-tarif" value="${existing?.tarif||''}"></div>
+      <div class="form-group"><label class="form-label">Durée (min)</label><input type="number" class="form-input" id="svc-duree" value="${existing?.duree||''}"></div>
+    </div>`,
+    `<button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+     <button class="btn btn-primary" onclick="saveService(${key?`'${key}'`:'null'})">Enregistrer</button>`);
+};
+window.saveService = async (key) => {
+  const nom = document.getElementById('svc-nom').value.trim();
+  const tarif = Number(document.getElementById('svc-tarif').value);
+  const duree = Number(document.getElementById('svc-duree').value);
+  if (!nom || !tarif || !duree) return;
+  await apiPost('saveService', { data: { id: key, nom, tarif, duree } });
+  closeModal();
+  syncAndRender();
+};
+window.deleteService = async (key) => { if (confirm('Supprimer ce service ?')) { await apiPost('deleteService', { id: key }); syncAndRender(); } };
 
-function renderAdminSettings(){
+// ================= ADMIN : COIFFEURS CRUD =================
+function renderCoiffeursAdmin(){
+  const el = document.getElementById('coiffeurs-list');
+  el.innerHTML = appData.coiffeurs.length ? appData.coiffeurs.map(([key,c]) => {
+    const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(c.nom||'Barber')}&background=c9a227&color=000`;
+    const avatarContent = c.image ? `<img src="${c.image}" style="width:100%;height:100%;object-fit:cover;" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='${fallbackUrl}'">` : `<span style="font-weight:bold;font-size:1.1rem;color:#000;">${(c.nom||'?').charAt(0).toUpperCase()}</span>`;
+    return `
+    <div class="list-card" style="display:flex;align-items:center;gap:15px;">
+      <div style="width:45px;height:45px;border-radius:50%;background:linear-gradient(135deg,var(--gold),var(--gold-light));display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
+        ${avatarContent}
+      </div>
+      <div style="flex:1;">
+        <div style="font-weight:600;">${c.nom}</div>
+        <div class="meta">${c.specialite||'Barbier'}</div>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-outline btn-sm" onclick='openCoiffeurModal(${JSON.stringify(key)})'><i class="fa-solid fa-pen"></i></button>
+        <button class="btn btn-danger btn-sm" onclick="deleteCoiffeur('${key}')"><i class="fa-solid fa-trash"></i></button>
+      </div>
+    </div>`;
+  }).join('') : `<div class="section-sub">Aucun coiffeur. Ajoutez-en un pour commencer.</div>`;
+}
+window.openCoiffeurModal = (key) => {
+  const existing = key ? appData.coiffeurs.find(([k])=>k===key)?.[1] : null;
+  openModal(existing ? 'Modifier le coiffeur' : 'Nouveau coiffeur', `
+    <div class="form-group"><label class="form-label">Nom</label><input class="form-input" id="cof-nom" value="${existing?.nom||''}"></div>
+    <div class="form-group"><label class="form-label">Spécialité</label><input class="form-input" id="cof-spe" value="${existing?.specialite||''}" placeholder="Ex: Dégradé, Barbe..."></div>
+    <div class="form-group">
+      <label class="form-label">URL Image (Optionnel)</label>
+      <input class="form-input" id="cof-img" value="${existing?.image||''}" placeholder="https://...">
+      <div style="font-size:0.75rem; color:var(--text-muted); margin-top:6px;">
+        ⚠️ Pour Google Drive : assurez-vous que le lien est réglé sur <strong>"Tous les utilisateurs disposant du lien"</strong>.
+      </div>
+    </div>`,
+    `<button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+     <button class="btn btn-primary" onclick="saveCoiffeur(${key?`'${key}'`:'null'})">Enregistrer</button>`);
+};
+window.saveCoiffeur = async (key) => {
+  const nom = document.getElementById('cof-nom').value.trim();
+  const specialite = document.getElementById('cof-spe').value.trim();
+  const image = formatImageUrl(document.getElementById('cof-img').value);
+  if (!nom) return;
+  await apiPost('saveCoiffeur', { data: { id: key, nom, specialite, image } });
+  closeModal();
+  syncAndRender();
+};
+window.deleteCoiffeur = async (key) => { if (confirm('Supprimer ce coiffeur ?')) { await apiPost('deleteCoiffeur', { id: key }); syncAndRender(); } };
+
+// ================= ADMIN : GALERIE CRUD =================
+function renderGalerieAdmin(){
+  const el = document.getElementById('galerie-list');
+  el.innerHTML = appData.galerie.length ? appData.galerie.map(([key,g]) => `
+    <div class="gallery-item" style="position:relative;">
+      <img src="${g.url}" alt="Galerie" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1599351431202-1e0f0137899a?q=80&w=400&auto=format&fit=crop'">
+      <button class="btn btn-danger btn-sm" style="position:absolute; top:8px; right:8px; padding:4px 8px;" onclick="deleteGalerie('${key}')"><i class="fa-solid fa-trash"></i></button>
+    </div>`).join('') : `<div class="section-sub">Aucune photo dans la galerie.</div>`;
+}
+window.openGalerieModal = () => {
+  openModal('Ajouter une photo', `
+    <div class="form-group">
+      <label class="form-label">URL de l'image (Google Drive ou Direct)</label>
+      <input class="form-input" id="gal-url" placeholder="https://...">
+      <div style="font-size:0.75rem; color:var(--text-muted); margin-top:6px;">
+        ⚠️ Pour Google Drive : assurez-vous que le lien est réglé sur <strong>"Tous les utilisateurs disposant du lien"</strong>.
+      </div>
+    </div>`,
+    `<button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+     <button class="btn btn-primary" onclick="saveGalerie()">Enregistrer</button>`);
+};
+window.saveGalerie = async () => {
+  const url = formatImageUrl(document.getElementById('gal-url').value);
+  if (!url) return;
+  await apiPost('saveGalerie', { data: { url } });
+  closeModal();
+  syncAndRender();
+};
+window.deleteGalerie = async (key) => { if (confirm('Supprimer cette photo ?')) { await apiPost('deleteGalerie', { id: key }); syncAndRender(); } };
+
+// ================= ADMIN : PARAMETRES =================
+function fillSettingsForm(){
   const s = appData.settings;
   document.getElementById('set-nom').value = s.nomSalon;
   document.getElementById('set-devise').value = s.devise;
@@ -1292,199 +1265,39 @@ function renderAdminSettings(){
   document.getElementById('set-ouverture').value = s.ouverture;
   document.getElementById('set-fermeture').value = s.fermeture;
   document.getElementById('set-duree').value = s.dureeSlot;
-  document.getElementById('set-about-title').value = s.aboutTitle;
-  document.getElementById('set-about-text').value = s.aboutText;
-  document.getElementById('set-footer').value = s.footerText;
-  
-  const divJours = document.getElementById('set-jours');
-  divJours.innerHTML = '';
-  JOURS.forEach((j, i) => {
-    const active = s.joursFermeture.includes(i);
-    divJours.innerHTML += `
-      <div class="form-check-pill ${active?'checked':''}" id="chk-day-${i}" onclick="toggleFermetureJour(${i})">${j}</div>
-    `;
-  });
+  document.getElementById('set-about-title').value = s.aboutTitle || '';
+  document.getElementById('set-about-text').value = s.aboutText || '';
+  document.getElementById('set-footer').value = s.footerText || '';
+  document.getElementById('set-jours').innerHTML = JOURS.map((j,i) => {
+    const checked = (s.joursFermeture||[]).includes(i);
+    return `<div class="form-check-pill ${checked?'checked':''}" data-day="${i}" onclick="this.classList.toggle('checked')">${j}</div>`;
+  }).join('');
 }
-
-function toggleFermetureJour(index){
-  const el = document.getElementById(`chk-day-${index}`);
-  el.classList.toggle('checked');
-}
-
-// ---------- CRUD ACTIONS ----------
-function closeModale(){
-  document.getElementById('modal-root').classList.add('masque');
-}
-function openModal(title, html, actionLabel, actionFn){
-  const root = document.getElementById('modal-root');
-  root.innerHTML = `
-    <div class="modal-box">
-      <div class="modal-title"><span>${title}</span><button class="btn-ghost" onclick="closeModale()"><i class="fa-solid fa-xmark"></i></button></div>
-      <div class="modal-body">${html}</div>
-      <div class="modal-foot">
-        <button class="btn btn-outline" onclick="closeModale()">Annuler</button>
-        <button class="btn btn-primary" onclick="${actionFn}">${actionLabel}</button>
-      </div>
-    </div>
-  `;
-  root.classList.remove('masque');
-}
-
-function openServiceModal(){
-  const html = `
-    <div class="form-group"><label class="form-label">Nom du service</label><input class="form-input" id="new-srv-nom" placeholder="Ex: Coupe Dégradé"></div>
-    <div class="form-row">
-      <div class="form-group"><label class="form-label">Tarif (${appData.settings.devise})</label><input type="number" class="form-input" id="new-srv-tarif" placeholder="1000"></div>
-      <div class="form-group"><label class="form-label">Durée (minutes)</label><input type="number" class="form-input" id="new-srv-duree" placeholder="30" step="5" min="5"></div>
-    </div>
-  `;
-  openModal("Nouveau Service", html, "Créer", "creerService()");
-}
-async function creerService(){
-  const nom = document.getElementById('new-srv-nom').value;
-  const tarif = document.getElementById('new-srv-tarif').value;
-  const duree = document.getElementById('new-srv-duree').value;
-  if (!nom || !tarif || !duree) return alert("Remplissez tous les champs.");
-  
-  closeModale();
-  document.getElementById('loader').classList.remove('masque');
-  try {
-    const r = await apiPost('creerService', { nom, tarif: Number(tarif), duree: Number(duree) });
-    if (r && r.statut === 'success') await syncApp();
-  } catch(e) { alert("Erreur réseau"); }
-  document.getElementById('loader').classList.add('masque');
-}
-
-async function supprimerService(id){
-  if (!confirm("Voulez-vous vraiment supprimer cette prestation ?")) return;
-  document.getElementById('loader').classList.remove('masque');
-  try {
-    const r = await apiPost('supprimerService', { id });
-    if (r && r.statut === 'success') await syncApp();
-  } catch(e) { alert("Erreur"); }
-  document.getElementById('loader').classList.add('masque');
-}
-
-function openCoiffeurModal(){
-  const html = `
-    <div class="form-group"><label class="form-label">Nom du coiffeur</label><input class="form-input" id="new-coif-nom" placeholder="Ex: Sofiane"></div>
-    <div class="form-group"><label class="form-label">Spécialité</label><input class="form-input" id="new-coif-spec" placeholder="Ex: Barbe &amp; Soins"></div>
-    <div class="form-group"><label class="form-label">Lien Photo (URL ou Google Drive)</label><input class="form-input" id="new-coif-image" placeholder="Facultatif"></div>
-  `;
-  openModal("Nouveau Coiffeur", html, "Ajouter", "creerCoiffeur()");
-}
-async function creerCoiffeur(){
-  const nom = document.getElementById('new-coif-nom').value;
-  const specialite = document.getElementById('new-coif-spec').value;
-  const image = document.getElementById('new-coif-image').value;
-  if (!nom) return alert("Le nom est obligatoire.");
-  
-  closeModale();
-  document.getElementById('loader').classList.remove('masque');
-  try {
-    const r = await apiPost('creerCoiffeur', { nom, specialite, image });
-    if (r && r.statut === 'success') await syncApp();
-  } catch(e) { alert("Erreur"); }
-  document.getElementById('loader').classList.add('masque');
-}
-
-async function supprimerCoiffeur(id){
-  if (!confirm("Supprimer ce coiffeur ?")) return;
-  document.getElementById('loader').classList.remove('masque');
-  try {
-    const r = await apiPost('supprimerCoiffeur', { id });
-    if (r && r.statut === 'success') await syncApp();
-  } catch(e) { alert("Erreur"); }
-  document.getElementById('loader').classList.add('masque');
-}
-
-function openGalerieModal(){
-  const html = `
-    <div class="form-group"><label class="form-label">Lien image (URL directe ou Google Drive)</label><input class="form-input" id="new-gal-url" placeholder="https://..."></div>
-  `;
-  openModal("Ajouter une Photo", html, "Enregistrer", "creerGalerie()");
-}
-async function creerGalerie(){
-  const url = document.getElementById('new-gal-url').value;
-  if (!url) return alert("Lien obligatoire.");
-  closeModale();
-  document.getElementById('loader').classList.remove('masque');
-  try {
-    const r = await apiPost('creerGalerie', { url });
-    if (r && r.statut === 'success') await syncApp();
-  } catch(e) { alert("Erreur"); }
-  document.getElementById('loader').classList.add('masque');
-}
-
-async function supprimerGalerie(id){
-  if (!confirm("Supprimer cette photo ?")) return;
-  document.getElementById('loader').classList.remove('masque');
-  try {
-    const r = await apiPost('supprimerGalerie', { id });
-    if (r && r.statut === 'success') await syncApp();
-  } catch(e) { alert("Erreur"); }
-  document.getElementById('loader').classList.add('masque');
-}
-
-async function saveSettings(){
-  const closedDays = [];
-  JOURS.forEach((j, i) => {
-    if (document.getElementById(`chk-day-${i}`).classList.contains('checked')) {
-      closedDays.push(i);
-    }
-  });
-  
+window.saveSettings = async () => {
+  const joursFermeture = [...document.querySelectorAll('#set-jours .form-check-pill.checked')].map(el => Number(el.dataset.day));
   const payload = {
-    nomSalon: document.getElementById('set-nom').value,
-    devise: document.getElementById('set-devise').value,
-    adresse: document.getElementById('set-adresse').value,
-    telephone: document.getElementById('set-tel').value,
-    ouverture: document.getElementById('set-ouverture').value,
-    fermeture: document.getElementById('set-fermeture').value,
-    dureeSlot: Number(document.getElementById('set-duree').value),
-    joursFermeture: closedDays.join(','),
-    aboutTitle: document.getElementById('set-about-title').value,
-    aboutText: document.getElementById('set-about-text').value,
-    footerText: document.getElementById('set-footer').value,
+    nomSalon: document.getElementById('set-nom').value.trim() || 'Barber Pro DZ',
+    devise: document.getElementById('set-devise').value.trim() || 'DA',
+    adresse: document.getElementById('set-adresse').value.trim(),
+    telephone: document.getElementById('set-tel').value.trim(),
+    ouverture: document.getElementById('set-ouverture').value || '09:00',
+    fermeture: document.getElementById('set-fermeture').value || '20:00',
+    dureeSlot: Number(document.getElementById('set-duree').value) || 30,
+    joursFermeture,
+    aboutTitle: document.getElementById('set-about-title').value.trim(),
+    aboutText: document.getElementById('set-about-text').value.trim(),
+    footerText: document.getElementById('set-footer').value.trim()
   };
-  
-  document.getElementById('loader').classList.remove('masque');
-  try {
-    const r = await apiPost('majParametres', payload);
-    if (r && r.statut === 'success') {
-      alert("Paramètres enregistrés.");
-      await syncApp();
-    } else {
-      alert("Erreur lors de l'enregistrement.");
-    }
-  } catch(e) { alert("Erreur réseau"); }
-  document.getElementById('loader').classList.add('masque');
-}
+  const btn = event.target.closest('button');
+  const old = btn.innerHTML;
+  await apiPost('saveParametres', { data: payload });
+  btn.innerHTML = '<i class="fa-solid fa-check"></i> Enregistré';
+  setTimeout(() => btn.innerHTML = old, 1500);
+  syncAndRender();
+};
 
-// ---------- EXPORT CSV ----------
-function exportData(){
-  const rList = Object.values(appData.reservations);
-  if (rList.length === 0) return alert("Rien à exporter.");
-  
-  let csv = "\uFEFFClient,Téléphone,Services,Coiffeur,Date,Heure,Statut\n";
-  rList.forEach(r => {
-    const sNoms = r.serviceIds.map(id => appData.services[id]?.nom || id).join(' + ');
-    const coif = appData.coiffeurs[r.coiffeurId]?.nom || 'Peu importe';
-    csv += `"${r.clientNom}","${r.clientTel}","${sNoms}","${coif}","${r.date}","${r.heure}","${STATUT_CODE_TO_FR[r.statut]}"\n`;
-  });
-  
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.setAttribute('download', 'reservations_barber_pro_dz.csv');
-  a.click();
-}
-
-// ---------- INIT ----------
-syncApp();
-setInterval(syncApp, POLL_MS);
-
+renderBookingStep();
 </script>
+
 </body>
 </html>
