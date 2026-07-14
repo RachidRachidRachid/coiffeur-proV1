@@ -113,7 +113,7 @@ header{height:70px;border-bottom:1px solid var(--border);display:flex;align-item
 .time-chip{font-family:var(--font-mono);background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;text-align:center;cursor:pointer;font-size:.85rem;transition:.15s;}
 .time-chip:hover{border-color:var(--gold);}
 .time-chip.selected{background:var(--gold);color:#000;border-color:var(--gold);font-weight:700;}
-.time-chip.taken{opacity:.3;text-decoration:line-through;cursor:not-allowed;}
+.time-chip.taken{opacity:.3;text-decoration:line-through;cursor:not-allowed;background:#222;border-color:#333;}
 
 /* ===== TICKET BAR ===== */
 .ticket-bar{position:fixed;bottom:0;left:0;right:0;background:var(--bg-elev);border-top:1px dashed var(--border);z-index:900;transform:translateY(100%);transition:transform .3s ease;box-shadow:0 -10px 30px rgba(0,0,0,.4);}
@@ -203,6 +203,7 @@ td{padding:14px 16px;border-top:1px solid var(--border);vertical-align:middle;}
   </div>
 </header>
 
+<!-- ================= CLIENT VIEW ================= -->
 <main id="client-view" class="conteneur">
   <div class="hero">
     <div class="eyebrow">Réservation en ligne</div>
@@ -282,6 +283,7 @@ td{padding:14px 16px;border-top:1px solid var(--border);vertical-align:middle;}
   </div>
 </div>
 
+<!-- ================= ADMIN VIEW ================= -->
 <main id="admin-view" class="conteneur masque" style="padding-top:30px;">
   <div class="panel-head">
     <div>
@@ -302,6 +304,7 @@ td{padding:14px 16px;border-top:1px solid var(--border);vertical-align:middle;}
     <div class="admin-tab" data-tab="parametres" onclick="switchAdminTab('parametres')">Paramètres</div>
   </div>
 
+  <!-- DASHBOARD PANEL -->
   <div id="panel-dashboard" class="admin-panel">
     <div class="kpi-grid">
       <div class="kpi-card"><div class="kpi-label">Chiffre d'affaires</div><div class="kpi-val" id="kpi-ca">0 DA</div><div class="kpi-sub" style="color:var(--success);">Réservations confirmées</div></div>
@@ -324,6 +327,7 @@ td{padding:14px 16px;border-top:1px solid var(--border);vertical-align:middle;}
     </div>
   </div>
 
+  <!-- RESERVATIONS PANEL -->
   <div id="panel-reservations" class="admin-panel masque">
     <div class="panel-head">
       <div style="display:flex;gap:10px;">
@@ -344,6 +348,7 @@ td{padding:14px 16px;border-top:1px solid var(--border);vertical-align:middle;}
     </div>
   </div>
 
+  <!-- SERVICES PANEL -->
   <div id="panel-services" class="admin-panel masque">
     <div class="panel-head">
       <div class="section-sub" style="margin:0;">Gérez les prestations proposées</div>
@@ -352,6 +357,7 @@ td{padding:14px 16px;border-top:1px solid var(--border);vertical-align:middle;}
     <div id="services-list"></div>
   </div>
 
+  <!-- COIFFEURS PANEL -->
   <div id="panel-coiffeurs" class="admin-panel masque">
     <div class="panel-head">
       <div class="section-sub" style="margin:0;">Gérez l'équipe de coiffeurs</div>
@@ -360,6 +366,7 @@ td{padding:14px 16px;border-top:1px solid var(--border);vertical-align:middle;}
     <div id="coiffeurs-list"></div>
   </div>
 
+  <!-- GALERIE PANEL -->
   <div id="panel-galerie" class="admin-panel masque">
     <div class="panel-head">
       <div class="section-sub" style="margin:0;">Gérez les photos de votre salon</div>
@@ -368,6 +375,7 @@ td{padding:14px 16px;border-top:1px solid var(--border);vertical-align:middle;}
     <div class="gallery-grid" id="galerie-list"></div>
   </div>
 
+  <!-- PARAMETRES PANEL -->
   <div id="panel-parametres" class="admin-panel masque">
     <div style="max-width:560px;">
       <div class="form-row">
@@ -393,6 +401,7 @@ td{padding:14px 16px;border-top:1px solid var(--border);vertical-align:middle;}
   </div>
 </main>
 
+<!-- ================= JAVASCRIPT ================= -->
 <script>
 const API_URL = "https://script.google.com/macros/s/AKfycbznnwNXY_38bOmDwOPkI4c_EdHwo9ZNDTw3nUI6wGadhI394BBM4auZ_NUIyZKENPTe/exec";
 
@@ -495,21 +504,21 @@ function renderServicesClient() {
     return;
   }
   el.innerHTML = appData.services.map(s => {
-    const isSelected = booking.services.some(x => x.ID === s.ID);
+    const isSelected = booking.services.some(x => x.id === s.id);
     return `
-      <div class="service-card ${isSelected ? 'selected' : ''}" onclick="toggleServiceClient('${s.ID}')">
+      <div class="service-card ${isSelected ? 'selected' : ''}" onclick="toggleServiceClient('${s.id}')">
         <div class="chk"><i class="fa-solid fa-check"></i></div>
-        <h4>${s.Nom}</h4>
-        <div class="service-price">${money(s.Tarif)}</div>
-        <div class="service-duree"><i class="fa-regular fa-clock"></i> ${s.Duree} min</div>
+        <h4>${s.nom}</h4>
+        <div class="service-price">${money(s.tarif)}</div>
+        <div class="service-duree"><i class="fa-regular fa-clock"></i> ${s.duree} min</div>
       </div>
     `;
   }).join('');
 }
 
 function toggleServiceClient(id) {
-  const s = appData.services.find(x => x.ID === id);
-  const idx = booking.services.findIndex(x => x.ID === id);
+  const s = appData.services.find(x => x.id === id);
+  const idx = booking.services.findIndex(x => x.id === id);
   if (idx > -1) booking.services.splice(idx, 1);
   else booking.services.push(s);
   
@@ -524,13 +533,13 @@ function renderCoiffeursClient() {
     return;
   }
   el.innerHTML = appData.coiffeurs.map(c => {
-    const isSelected = booking.coiffeurId === c.ID;
-    const avatar = c.Image ? `<img src="${c.Image}">` : (c.Nom || '?').charAt(0);
+    const isSelected = booking.coiffeurId === c.id;
+    const avatar = c.image ? `<img src="${c.image}">` : (c.nom || '?').charAt(0);
     return `
-      <div class="barber-card ${isSelected ? 'selected' : ''}" onclick="selectCoiffeurClient('${c.ID}', '${c.Nom}')">
+      <div class="barber-card ${isSelected ? 'selected' : ''}" onclick="selectCoiffeurClient('${c.id}', '${c.nom}')">
         <div class="barber-avatar">${avatar}</div>
-        <div style="font-weight:600;">${c.Nom}</div>
-        <div style="font-size:.75rem;color:var(--text-muted);margin-top:2px;">${c.Specialite || 'Coiffeur'}</div>
+        <div style="font-weight:600;">${c.nom}</div>
+        <div style="font-size:.75rem;color:var(--text-muted);margin-top:2px;">${c.specialite || 'Coiffeur'}</div>
       </div>
     `;
   }).join('');
@@ -553,7 +562,7 @@ function renderGalerieClient() {
   section.classList.remove('masque');
   el.innerHTML = appData.galerie.map(g => `
     <div class="gallery-item">
-      <img src="${g.Url}" alt="Photo Salon" loading="lazy">
+      <img src="${g.url}" alt="Photo Salon" loading="lazy">
     </div>
   `).join('');
 }
@@ -568,7 +577,7 @@ function updateTicketBar() {
   }
   
   bar.classList.add('show');
-  const total = booking.services.reduce((acc, x) => acc + Number(x.Tarif || 0), 0);
+  const total = booking.services.reduce((acc, x) => acc + Number(x.tarif || 0), 0);
   document.getElementById('ticket-count-lbl').textContent = `${booking.services.length} prestation${booking.services.length > 1 ? 's' : ''}`;
   document.getElementById('ticket-total').textContent = money(total);
   
@@ -601,8 +610,8 @@ function prevStep() {
 async function nextStep() {
   if (booking.step === 5) {
     document.getElementById('loader').classList.remove('masque');
-    const total = booking.services.reduce((acc, x) => acc + Number(x.Tarif || 0), 0);
-    const names = booking.services.map(x => x.Nom).join(' + ');
+    const total = booking.services.reduce((acc, x) => acc + Number(x.tarif || 0), 0);
+    const names = booking.services.map(x => x.nom).join(' + ');
     
     const result = await apiPost('createReservation', {
       nom: booking.nom,
@@ -742,7 +751,9 @@ function renderTimeSlots() {
   let html = '';
   
   // Obtenir les créneaux déjà réservés pour cette date et ce coiffeur
-  const takenSlots = appData.reservations.filter(r => r.Date === booking.date && r.Coiffeur === booking.coiffeurNom && r.Statut !== 'Annulé').map(r => r.Heure);
+  const takenSlots = appData.reservations
+    .filter(r => r.date === booking.date && r.coiffeur === booking.coiffeurNom && r.statut !== 'Annulé')
+    .map(r => r.heure);
 
   while (current < end) {
     const h = Math.floor(current / 60);
@@ -771,8 +782,8 @@ function selectTimeClient(t) {
 
 function renderConfirmRecap() {
   const el = document.getElementById('confirm-recap');
-  const total = booking.services.reduce((acc, x) => acc + Number(x.Tarif || 0), 0);
-  const sNames = booking.services.map(x => x.Nom).join(', ');
+  const total = booking.services.reduce((acc, x) => acc + Number(x.tarif || 0), 0);
+  const sNames = booking.services.map(x => x.nom).join(', ');
   
   el.innerHTML = `
     <div class="confirm-line"><span>Prestations :</span><strong>${sNames}</strong></div>
@@ -813,11 +824,11 @@ function renderDashboard() {
   const resArray = appData.reservations || [];
   
   resArray.forEach(r => {
-    if (r.Statut === 'Confirmé') totalCA += Number(r.Prix || 0);
-    if (r.Statut === 'En attente') countAttente++;
+    if (r.statut === 'Confirmé') totalCA += Number(r.prix || 0);
+    if (r.statut === 'En attente') countAttente++;
     
-    if (r.Service) {
-      r.Service.split(' + ').forEach(s => {
+    if (r.service) {
+      r.service.split(' + ').forEach(s => {
         serviceStats[s] = (serviceStats[s] || 0) + 1;
       });
     }
@@ -840,11 +851,11 @@ function renderDashboard() {
   } else {
     tbody.innerHTML = recent.map(r => `
       <tr>
-        <td><strong>${r.Nom}</strong></td>
-        <td>${r.Service}</td>
-        <td>${r.Date} · ${r.Heure}</td>
-        <td>${money(r.Prix || 0)}</td>
-        <td><span class="status ${r.Statut === 'Confirmé' ? 'status-confirme' : (r.Statut === 'Annulé' ? 'status-annule' : 'status-attente')}">${r.Statut}</span></td>
+        <td><strong>${r.nom}</strong></td>
+        <td>${r.service}</td>
+        <td>${r.date} · ${r.heure}</td>
+        <td>${money(r.prix || 0)}</td>
+        <td><span class="status ${r.statut === 'Confirmé' ? 'status-confirme' : (r.statut === 'Annulé' ? 'status-annule' : 'status-attente')}">${r.statut}</span></td>
       </tr>
     `).join('');
   }
@@ -855,7 +866,7 @@ function renderDashboard() {
 
 function renderChart(reservations) {
   const counts = {};
-  reservations.slice(-10).forEach(r => { counts[r.Date] = (counts[r.Date] || 0) + 1; });
+  reservations.slice(-10).forEach(r => { counts[r.date] = (counts[r.date] || 0) + 1; });
   const labels = Object.keys(counts).sort();
   const values = labels.map(l => counts[l]);
   
@@ -886,8 +897,8 @@ function renderReservationsTable() {
   
   let res = appData.reservations || [];
   
-  if (statusFilter) res = res.filter(r => r.Statut === statusFilter);
-  if (searchFilter) res = res.filter(r => String(r.Nom).toLowerCase().includes(searchFilter));
+  if (statusFilter) res = res.filter(r => r.statut === statusFilter);
+  if (searchFilter) res = res.filter(r => String(r.nom).toLowerCase().includes(searchFilter));
   
   if(!res.length) {
     tbody.innerHTML = '<tr><td colspan="8" class="empty-row">Aucune réservation trouvée</td></tr>';
@@ -896,16 +907,16 @@ function renderReservationsTable() {
   
   tbody.innerHTML = res.map(r => `
     <tr>
-      <td><strong>${r.Nom}</strong></td>
-      <td>${r.Telephone || '—'}</td>
-      <td>${r.Service}</td>
-      <td>${r.Coiffeur || '—'}</td>
-      <td>${r.Date} à <strong>${r.Heure}</strong></td>
-      <td>${money(r.Prix || 0)}</td>
-      <td><span class="status ${r.Statut === 'Confirmé' ? 'status-confirme' : (r.Statut === 'Annulé' ? 'status-annule' : 'status-attente')}">${r.Statut}</span></td>
+      <td><strong>${r.nom}</strong></td>
+      <td>${r.telephone || '—'}</td>
+      <td>${r.service}</td>
+      <td>${r.coiffeur || '—'}</td>
+      <td>${r.date} à <strong>${r.heure}</strong></td>
+      <td>${money(r.prix || 0)}</td>
+      <td><span class="status ${r.statut === 'Confirmé' ? 'status-confirme' : (r.statut === 'Annulé' ? 'status-annule' : 'status-attente')}">${r.statut}</span></td>
       <td>
-        <button class="btn btn-outline btn-sm" onclick="updateStatus('${r.ID}', 'Confirmé')"><i class="fa-solid fa-check"></i></button>
-        <button class="btn btn-danger btn-sm" onclick="updateStatus('${r.ID}', 'Annulé')"><i class="fa-solid fa-ban"></i></button>
+        <button class="btn btn-outline btn-sm" onclick="updateStatus('${r.id}', 'Confirmé')"><i class="fa-solid fa-check"></i></button>
+        <button class="btn btn-danger btn-sm" onclick="updateStatus('${r.id}', 'Annulé')"><i class="fa-solid fa-ban"></i></button>
       </td>
     </tr>
   `).join('');
@@ -929,12 +940,12 @@ function renderServicesAdmin() {
   el.innerHTML = list.map(s => `
     <div class="list-card">
       <div>
-        <div style="font-weight:600;">${s.Nom}</div>
-        <div class="meta">${money(s.Tarif)} · ${s.Duree} min</div>
+        <div style="font-weight:600;">${s.nom}</div>
+        <div class="meta">${money(s.tarif)} · ${s.duree} min</div>
       </div>
       <div style="display:flex;gap:6px;">
-        <button class="btn btn-outline btn-sm" onclick="openServiceModal('${s.ID}')"><i class="fa-solid fa-pen"></i></button>
-        <button class="btn btn-danger btn-sm" onclick="deleteService('${s.ID}')"><i class="fa-solid fa-trash"></i></button>
+        <button class="btn btn-outline btn-sm" onclick="openServiceModal('${s.id}')"><i class="fa-solid fa-pen"></i></button>
+        <button class="btn btn-danger btn-sm" onclick="deleteService('${s.id}')"><i class="fa-solid fa-trash"></i></button>
       </div>
     </div>
   `).join('');
@@ -954,15 +965,15 @@ function openModal(title, body, foot) {
 function closeModal() { document.getElementById('modal-root').classList.add('masque'); }
 
 function openServiceModal(id = null) {
-  const s = appData.services.find(x => x.ID === id) || { ID: '', Nom: '', Tarif: '', Duree: '' };
+  const s = appData.services.find(x => x.id === id) || { id: '', nom: '', tarif: '', duree: '' };
   const bStr = `
-    <div class="form-group"><label class="form-label">Nom Prestation</label><input class="form-input" id="m-svc-nom" value="${s.Nom}"></div>
+    <div class="form-group"><label class="form-label">Nom Prestation</label><input class="form-input" id="m-svc-nom" value="${s.nom}"></div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Tarif</label><input type="number" class="form-input" id="m-svc-tarif" value="${s.Tarif}"></div>
-      <div class="form-group"><label class="form-label">Durée (min)</label><input type="number" class="form-input" id="m-svc-duree" value="${s.Duree}"></div>
+      <div class="form-group"><label class="form-label">Tarif</label><input type="number" class="form-input" id="m-svc-tarif" value="${s.tarif}"></div>
+      <div class="form-group"><label class="form-label">Durée (min)</label><input type="number" class="form-input" id="m-svc-duree" value="${s.duree}"></div>
     </div>
   `;
-  const fStr = `<button class="btn btn-outline" onclick="closeModal()">Annuler</button><button class="btn btn-primary" onclick="saveServiceSubmit('${s.ID}')">Enregistrer</button>`;
+  const fStr = `<button class="btn btn-outline" onclick="closeModal()">Annuler</button><button class="btn btn-primary" onclick="saveServiceSubmit('${s.id}')">Enregistrer</button>`;
   openModal(id ? 'Modifier Prestation' : 'Nouvelle Prestation', bStr, fStr);
 }
 
@@ -999,25 +1010,25 @@ function renderCoiffeursAdmin() {
   el.innerHTML = list.map(c => `
     <div class="list-card">
       <div>
-        <div style="font-weight:600;">${c.Nom}</div>
-        <div class="meta">${c.Specialite || 'Généraliste'}</div>
+        <div style="font-weight:600;">${c.nom}</div>
+        <div class="meta">${c.specialite || 'Généraliste'}</div>
       </div>
       <div style="display:flex;gap:6px;">
-        <button class="btn btn-outline btn-sm" onclick="openCoiffeurModal('${c.ID}')"><i class="fa-solid fa-pen"></i></button>
-        <button class="btn btn-danger btn-sm" onclick="deleteCoiffeur('${c.ID}')"><i class="fa-solid fa-trash"></i></button>
+        <button class="btn btn-outline btn-sm" onclick="openCoiffeurModal('${c.id}')"><i class="fa-solid fa-pen"></i></button>
+        <button class="btn btn-danger btn-sm" onclick="deleteCoiffeur('${c.id}')"><i class="fa-solid fa-trash"></i></button>
       </div>
     </div>
   `).join('');
 }
 
 function openCoiffeurModal(id = null) {
-  const c = appData.coiffeurs.find(x => x.ID === id) || { ID: '', Nom: '', Specialite: '', Image: '' };
+  const c = appData.coiffeurs.find(x => x.id === id) || { id: '', nom: '', specialite: '', image: '' };
   const bStr = `
-    <div class="form-group"><label class="form-label">Nom complet</label><input class="form-input" id="m-coif-nom" value="${c.Nom}"></div>
-    <div class="form-group"><label class="form-label">Spécialité</label><input class="form-input" id="m-coif-spec" value="${c.Specialite}"></div>
-    <div class="form-group"><label class="form-label">URL Photo (Optionnel)</label><input class="form-input" id="m-coif-img" value="${c.Image || ''}"></div>
+    <div class="form-group"><label class="form-label">Nom complet</label><input class="form-input" id="m-coif-nom" value="${c.nom}"></div>
+    <div class="form-group"><label class="form-label">Spécialité</label><input class="form-input" id="m-coif-spec" value="${c.specialite}"></div>
+    <div class="form-group"><label class="form-label">URL Photo (Optionnel)</label><input class="form-input" id="m-coif-img" value="${c.image || ''}"></div>
   `;
-  const fStr = `<button class="btn btn-outline" onclick="closeModal()">Annuler</button><button class="btn btn-primary" onclick="saveCoiffeurSubmit('${c.ID}')">Enregistrer</button>`;
+  const fStr = `<button class="btn btn-outline" onclick="closeModal()">Annuler</button><button class="btn btn-primary" onclick="saveCoiffeurSubmit('${c.id}')">Enregistrer</button>`;
   openModal(id ? 'Modifier Coiffeur' : 'Nouveau Coiffeur', bStr, fStr);
 }
 
@@ -1053,8 +1064,8 @@ function renderGalerieAdmin() {
   }
   el.innerHTML = list.map(g => `
     <div class="gallery-admin-item">
-      <div class="gallery-item"><img src="${g.Url}"></div>
-      <button class="btn btn-danger btn-block btn-sm" onclick="deleteGalerie('${g.ID}')"><i class="fa-solid fa-trash"></i> Supprimer</button>
+      <div class="gallery-item"><img src="${g.url}"></div>
+      <button class="btn btn-danger btn-block btn-sm" onclick="deleteGalerie('${g.id}')"><i class="fa-solid fa-trash"></i> Supprimer</button>
     </div>
   `).join('');
 }
@@ -1109,7 +1120,7 @@ function renderSettingsForm() {
 async function saveSettings(e) {
   e.preventDefault();
   const listPills = document.querySelectorAll('#set-jours .form-check-pill.checked');
-  const joursFermeture = Array.from(listPills).map(el => Number(el.dataset.day));
+  const joursFermeture = Array.from(listPills).map(el => Number(el.dataset.day)).join(',');
   
   const payload = {
     nomSalon: document.getElementById('set-nom').value,
